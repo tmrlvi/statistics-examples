@@ -1,0 +1,383 @@
+<html>
+<head>
+  <meta charset="utf-8">
+  <!-- Bootstrap basic -->
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css" integrity="sha384-HSMxcRTRxnN+Bdg0JdbxYKrThecOKuH5zCYotlSAcp1+c8xmyTe9GYg1l9a69psu" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap-theme.min.css" integrity="sha384-6pzBo3FDv/PJ8r2KRkGHifhEocL+1X2rVCTTkUfGk7/0pbek5mMa1upzvWbrUbOZ" crossorigin="anonymous">
+  <script src="https://stackpath.bootstrapcdn.com/bootstrap/3.4.1/js/bootstrap.min.js" integrity="sha384-aJ21OjlMXNL5UyIl/XNwTMqvzeRMZH2w8c5cRVpzpU8Y5bApTppSuUkhZXN0VxHd" crossorigin="anonymous"></script>
+
+  <!-- Bootstrap RTL support  -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-rtl/3.4.0/css/bootstrap-rtl.min.css"/>
+
+  <!-- MathJax for math texts-->
+  <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+  <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+  <!-- D3JS Library for data visualization-->
+  <script src="https://d3js.org/d3.v5.min.js"></script>
+  <script>
+    var params = {
+      "sample_size": 6,
+      "delay": 10,
+      "center": true,
+      "standardize": true,
+      "scale": true,
+      "distribution": [
+        {"value": 2, "prob": 0.2},
+        {"value": 3, "prob": 0.04},
+        {"value": 4, "prob": 0.02},
+        {"value": 5, "prob": 0.01},
+        {"value": 6, "prob": 0.03},
+        {"value": 7, "prob": 0.2},
+        {"value": 8, "prob": 0.1},
+        {"value": 9, "prob": 0.1},
+        {"value": 10, "prob": 0.3}
+      ],
+      "loop": false
+    };
+
+    var vis_params = {
+      "margin": {top: 10, right: 30, bottom: 30, left: 40}
+    };
+    vis_params["width"] = 400 - vis_params["margin"]["left"] - vis_params["margin"]["right"]; 
+    vis_params["height"] = 400 - vis_params["margin"]["top"] - vis_params["margin"]["bottom"];
+
+    var vis = {
+      "svg": null,
+      "histogram": null
+    };
+
+    var data = [];
+
+    var last = [];
+
+    function make_gaussian_func(mu, sigma_squared) {
+      return (function(xi) {
+        return Math.pow(Math.E, - Math.pow(xi - mu, 2) / (2 * sigma_squared) )
+      });
+    }
+
+    function updateParams(){
+      moments = [0, 0];
+      for(var i=0; i<params["distribution"].length; i++){
+        cur = params["distribution"][i];
+        moments[0] += cur["value"]*cur["prob"];
+        moments[1] += cur["value"]*cur["value"]*cur["prob"];
+      }
+      params["mean"] = moments[0];
+      params["sd"] = Math.sqrt(moments[1] - moments[0]*moments[0]);
+      params["gaussian"] = make_gaussian_func(0, 1);
+      params["sample_size"] = d3.select("#sample-size").node().valueAsNumber;
+      params["delay"] = d3.select("#speed").node().valueAsNumber;
+      params["center"] = d3.select("#center").node().checked;
+      params["standardize"] = d3.select("#standardize").node().checked;
+      params["scale"] = d3.select("#scale").node().checked;
+
+      d3.select("#mu").text("\\(\\mu = " + params["mean"].toFixed(2) + "\\)");
+      d3.select("#sigma").text("\\(\\sigma = " + params["sd"].toFixed(2) + "\\)");
+    }
+
+    function updateFormula(){
+      formula = "\\overline{X}"
+      if (params["center"]) formula += " - \\mu";
+      if (params["standardize"]) formula = "\\frac{" + formula + "}{\\sigma}";
+      if (params["scale"]) formula = "\\sqrt{n}" + formula;
+      d3.select("#formula").text("\\(" + formula + "\\)")
+      if (window.MathJax !== undefined) 
+          MathJax.typeset();
+    }
+
+    function distribution_histogram(selector){
+      delta = d3.min(params["distribution"].slice(1).map((d,i) => d["value"] - params["distribution"][i]["value"]))
+      bins = params["distribution"].map((d) => ({ x0: d["value"], x1: d["value"]+delta, length: d["prob"]}))
+      update_histogram(selector, bins, params["mean"]);
+    }
+
+    function init_histogram(selector, density){
+      // append the svg object to the body of the page
+      vis[selector] = {}
+      vis[selector]["svg"] = d3.select(selector)
+                     .append("svg")
+                     .attr("width", vis_params["width"] + vis_params["margin"]["left"] + vis_params["margin"]["right"])
+                     .attr("height", vis_params["height"] + vis_params["margin"]["top"] + vis_params["margin"]["bottom"])
+                     .append("g")
+                     .attr("transform",
+                           "translate(" + vis_params["margin"]["left"] + "," + vis_params["margin"]["top"] + ")");
+
+      console.log(d3.min(params["distribution"].map((d) => (d["value"]))))
+      vis[selector]["x"] = d3.scaleLinear()
+                   .domain([
+                      Math.min(-4, d3.min(params["distribution"].map((d) => (d["value"]))), params["mean"] - 2*params["sd"]),
+                      Math.max(4, d3.max(params["distribution"].map((d) => (d["value"]))), params["mean"] + 2*params["sd"]),
+                   ])
+                  .range([0, vis_params["width"]]);
+      
+      vis[selector]["svg"].append("g")
+                .attr("transform", "translate(0," + vis_params["height"] + ")")
+                .call(d3.axisBottom(vis[selector]["x"]));
+
+      // set the parameters for the histogram
+      vis[selector]["histogram"] = d3.histogram()
+                           .value(function(d) { return d; })   // I need to give the vector of value
+                           .domain(vis[selector]["x"].domain())  // then the domain of the graphic
+
+      // Y axis: scale and draw:
+      vis[selector]["y"] = d3.scaleLinear()
+                   .range([vis_params["height"], 0]);
+      vis[selector]["svg"].append("g")
+                .attr("class", "yaxis")
+                .call(d3.axisLeft(vis[selector]["y"]));
+
+      if (density !== null && density !== undefined){
+        vis[selector]["svg"].append("path").attr("class", "density")
+                  .attr("d", function(d) { return d3.line()(
+                      vis[selector]["x"].ticks(200).map(function(xi) {
+                      return [ vis[selector]["x"](xi), vis[selector]["y"](density["func"](xi)) ]
+                    })
+                  )})
+
+        legend = vis[selector]["svg"].append("g");
+        legend.append("rect").attr("width", 10).attr("height", 3)
+              .style("fill", "#348")
+        legend.append("text").attr("x", 12).attr("y", 3).text(density["name"])
+        legend.attr("transform", "translate(235, 5)"); 
+      }
+
+    }
+
+    function update_histogram(selector, bins, mean = 0){
+      vis[selector]["y"].domain([0, (1.01)*d3.max(bins, function(d) { return d.length; })])
+      vis[selector]["svg"].selectAll(".yaxis").call(d3.axisLeft(vis[selector]["y"]));
+
+      // append the bar rectangles to the svg element
+      vis[selector]["svg"].selectAll("rect").remove()
+      vis[selector]["svg"].selectAll("rect")
+               .data(bins)
+               .enter()
+               .append("rect")
+               .attr("x", 1)
+               .attr("transform", function(d) { return "translate(" + vis[selector]["x"](d.x0) + "," + vis[selector]["y"](d.length) +  ")"; })
+               .attr("width", function(d) { return vis[selector]["x"](d.x1) - vis[selector]["x"](d.x0) - 1 ; })
+               .attr("height", function(d) { return vis_params["height"] - vis[selector]["y"](d.length); })
+               .style("fill", "#69b3a2")
+
+      vis[selector]["svg"].selectAll(".mean").remove()
+      var mean_line = vis[selector]["svg"].append("line").attr("class", "mean")
+      mean_line.attr("x1", vis[selector]["x"](mean)).attr("x2", vis[selector]["x"](mean))
+               .attr("y1", vis[selector]["y"](0))
+    
+    }
+
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function generateSample(dist, num){
+      var rolls = [];
+      for(var i=0; i<num; i++){
+        var rand = Math.random();
+        var idx = 0;
+        var cumsum = dist[idx]["prob"];
+        while (cumsum < rand){
+          idx++;
+          cumsum += dist[idx]["prob"]
+        }
+        rolls.push(dist[idx]["value"]);
+      }
+      return rolls;
+    };
+
+    async function animate(selector) {
+      // returns an array of the values from the dice
+      rolls = generateSample(params["distribution"], params["sample_size"])
+      last.unshift(rolls)
+      if (last.length > 10) { 
+          last.pop()
+      }
+      var last_table = d3.select("#last")
+                         .selectAll("tr")
+                         .data(last)
+
+      row = last_table.enter().append("tr").merge(last_table)
+      //row.text(function (d) {return d;});
+
+      var inner = row.selectAll("td").data(function(d){return d})
+
+      inner.exit().remove();
+      inner.enter()
+           .append("td").text(d => d);
+
+      inner.text(d => d);
+
+      row.selectAll("th").remove() 
+      row.insert("th", ":first-child").attr("scope", "row").text(function(d) {return (d3.mean(d)).toFixed(2);})
+
+      last_table.exit().remove();
+
+      data.push(d3.mean(rolls))
+
+      hist_data = data.map(function(d){
+        if (params["center"]) d = d - params["mean"];
+        if (params["standardize"]) d = d/params["sd"];
+        if (params["scale"]) d = d*Math.sqrt(params["sample_size"]);
+        return(d);
+      })
+
+      vis[selector]["histogram"].thresholds(vis[selector]["x"].ticks(50));
+
+      // And apply this function to data to get the bins
+      var bins = vis[selector]["histogram"](hist_data);
+  
+      update_histogram(selector, bins, (1-params["center"])*params["mean"]);
+
+      if (params["loop"]){
+        await sleep(params["delay"]);
+        animate(selector);
+      }
+    };
+
+  </script>
+  <style>
+    .density {
+      fill: none;
+      stroke: #348;
+      stroke-width: 3px;
+    }
+
+    .mean {stroke: #661111; stroke-width:1; stroke-dasharray: 5,5}
+
+    #table {
+      overflow-x: auto;
+    }
+
+  .center-block {
+    display: table;
+    background-color: #ffffff;
+    float: none;
+    max-width: 1600px;
+    margin: 0 auto;
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .main {
+    display: block;
+    margin: 0 auto 0 auto;
+    min-height: 100%;
+  }
+
+  body {
+    background-color: #444444;
+  }
+
+  #formula {
+    font-size: 20;
+  }
+  </style>
+</head>
+<body dir="rtl">
+<div class="center-block clearfix main">
+  <div class="center-block">
+  <h1>הדגמה של משפט הגבול המרכזי</h1>
+  </div>
+  <p class="lead">
+  משפט הגבול המרכזי מתייחס להתפלגות של ממוצע המדגם עבור מדגמים גדולים. כלומר, עבור אוכלוסיה נתונה, אנחנו מגרילים קבוצות של תצפיות, ולכל קבוצה אנחנו מחשבים ממוצע. עבור קבוצות גדולות, משפט הגבול המרכזי מראה כי ההתפלגות של <em>ציון התקן</em> של הממוצעים שחישבנו קרובה להתפלגות נורמלית סטנדרטית. כדי לראות את המשפט בפעולה, אנחנו יכולים לדגום ממוצעים בגודל מסויים לראות איך ההיסטוגרמה ציון התקן נראה, ביחס להתפלגות נורמלית סטנדרטית.
+  </p>
+
+  <div class="container-fluid">
+  <div class="row">
+  <div id="controls" class="col-md-2">
+    <div class="row">
+        <div class="col-md-12">
+    <h2>מאפיינים</h2>
+        </div>
+    </div>
+    <div class="row">
+        <div class="col-md-4">
+        <label for"sample-size">מספר דגימות</label>
+        </div>
+        <div class="col-md-8">
+        <input class="form-control input-sm" type="number" value=10 id="sample-size"></input>
+        </div>
+    </div>
+    <div class="row">
+        <div class="col-md-4">
+        <label for"speed">מהירות</label>
+        </div>
+        <div class="col-md-8">
+        <input id="speed" type="range" min=1 max=1000></input>
+        </div>
+    </div>
+    <div class="row">
+        <div class="col-md-12">
+        <input type="checkbox" id="center">מרכוז (חיסור ממוצע האוכלוסיה)</input>
+    </div>
+    </div>
+    <div class="row">
+        <div class="col-md-12">
+        <input type="checkbox" id="standardize">חלוקה בסטיית התקן</input>
+    </div>
+    </div>
+    <div class="row">
+        <div class="col-md-12">
+        <input type="checkbox" id="scale">הכפלה בשורש גודל המדגם</input>
+    </div>
+    </div>
+    <div class="row">
+      <div class="col-md-6">
+      <button class="button" id="start">התחל</button>
+    </div>
+      <div class="col-md-6">
+      <button class="button" id="stop">עצור</button>
+    </div>
+    </div>
+  </div>
+  <div class="col-md-2"><h2>10 דגימות אחרונות</h2><div id="table"><table class="table table-hover"><thead><th>ממוצע</th><th>מדגם</th></thead><tbody id="last"></tbody></table></div></div>
+  <div id="charts" class="col-md-6">
+    <div class="row">
+    <div class="col-md-6">
+    <h2>התפלגות אוכלוסיה</h2>
+    <div>ממוצע אוכלוסיה: <span id="mu"></span>, סטיית תקן: <span id="sigma"></span></div>
+    <div id="orig-histogram" class="histogram" dir="ltr"></div></div>
+    <div class="col-md-6">
+    <h2>התפלגות ממוצע מדגם <span id="formula"></span></h2>
+    <div id="histogram" class="histogram" dir="ltr"></div></div>
+    </div>
+    </div>
+  </div>
+  </div>
+  </div>
+</div>
+  <script>
+    updateParams();
+    updateFormula();
+
+    init_histogram("#histogram", density={"func": params["gaussian"], "name": "התפלגות נורמלית"});
+    init_histogram("#orig-histogram");
+    distribution_histogram("#orig-histogram");
+
+    d3.select("#start").on("click", function(){ last=[]; data=[]; params["loop"] = true; animate("#histogram") });
+    d3.select("#stop").on("click", function(){ params["loop"] = false });
+
+    d3.select("#speed").on("input", function(){ 
+      params["delay"] = +this.value 
+    });
+    d3.select("#sample-size").on("input", function(){
+      params["loop"] = false;
+      params["sample_size"] = +this.value 
+    });
+    d3.select("#center").on("input", function(){
+      params["center"] = this.checked
+      updateFormula();
+    });
+    d3.select("#standardize").on("input", function(){
+      params["standardize"] = this.checked 
+      updateFormula();
+    });
+    d3.select("#scale").on("input", function(){
+      params["scale"] = this.checked 
+      updateFormula();
+    });
+  </script>
+</body>
+</html>
