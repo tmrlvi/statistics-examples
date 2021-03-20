@@ -98,7 +98,7 @@
     function init_histogram(selector, density){
       // append the svg object to the body of the page
       vis[selector] = {}
-      vis[selector]["svg"] = d3.select(selector)
+      svg = d3.select(selector)
                      .append("svg")
                      .attr("width", vis_params["width"] + vis_params["margin"]["left"] + vis_params["margin"]["right"])
                      .attr("height", vis_params["height"] + vis_params["margin"]["top"] + vis_params["margin"]["bottom"])
@@ -114,9 +114,9 @@
                    ])
                   .range([0, vis_params["width"]]);
       
-      vis[selector]["svg"].append("g")
-                .attr("transform", "translate(0," + vis_params["height"] + ")")
-                .call(d3.axisBottom(vis[selector]["x"]));
+      svg.append("g")
+         .attr("transform", "translate(0," + vis_params["height"] + ")")
+         .call(d3.axisBottom(vis[selector]["x"]));
 
       // set the parameters for the histogram
       vis[selector]["histogram"] = d3.histogram()
@@ -126,25 +126,25 @@
       // Y axis: scale and draw:
       vis[selector]["y"] = d3.scaleLinear()
                    .range([vis_params["height"], 0]);
-      vis[selector]["svg"].append("g")
-                .attr("class", "yaxis")
-                .call(d3.axisLeft(vis[selector]["y"]));
+      svg.append("g")
+         .attr("class", "yaxis")
+         .call(d3.axisLeft(vis[selector]["y"]));
 
       if (density !== null && density !== undefined){
-        vis[selector]["svg"].append("path").attr("class", "density")
-                  .attr("d", function(d) { return d3.line()(
+        svg.append("path").attr("class", "density")
+           .attr("d", function(d) { return d3.line()(
                       vis[selector]["x"].ticks(200).map(function(xi) {
                       return [ vis[selector]["x"](xi), vis[selector]["y"](density["func"](xi)) ]
                     })
                   )})
 
-        legend = vis[selector]["svg"].append("g");
+        legend = svg.append("g");
         legend.append("rect").attr("width", 10).attr("height", 3)
               .style("fill", "#348")
         legend.append("text").attr("x", 12).attr("y", 3).text(density["name"])
         legend.attr("transform", "translate(235, 5)"); 
       }
-
+      vis[selector]["svg"] = svg.append("g")
     }
 
     function update_histogram(selector, bins, mean = 0){
